@@ -3,11 +3,14 @@ import { useEffect, useState } from "react";
 import Header from "./components/Header";
 import HeroSlider from "./components/HeroSlider";
 import Pagination from "./components/Pagination";
+import { useNavigate } from "react-router-dom";
 
 function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  let navigate = useNavigate();
 
   const [page, setPage] = useState(1);
 
@@ -82,6 +85,7 @@ function App() {
               <div
                 key={movie.id ?? movie.title}
                 className="card bg-base-100 shadow-sm overflow-hidden group transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
+                onClick={() => navigate(`/movie/${movie.id}`)}
               >
                 <figure className="relative aspect-[2/3] overflow-hidden bg-base-300">
                   <img

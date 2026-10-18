@@ -3,62 +3,287 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
 
 const GENRE_ICONS = {
-  // 1
   Crime: "mdi:police-badge-outline",
-  // 2
   Drama: "mdi:drama-masks",
-  // 3
   Action: "mdi:fire",
-  // 4
   Biography: "mdi:book-account-outline",
-  // 5
   History: "mdi:bank-outline",
-  // 6
   Adventure: "mdi:compass-outline",
-  // 7
   Fantasy: "mdi:magic-staff",
-  // 8
   Western: "fa-solid:hat-cowboy",
-  // 9
   Comedy: "mdi:emoticon-happy-outline",
-  // 10
   "Sci-Fi": "mdi:ufo-outline",
-  // 11
   Mystery: "mdi:magnify-scan",
-  // 12
   Thriller: "mdi:knife-military",
-  // 13
   Family: "mdi:account-group-outline",
-  // 14
   War: "mdi:tank",
-  // 15
   Animation: "mdi:palette-outline",
-  // 16
   Romance: "mdi:heart-outline",
-  // 17
   Horror: "mdi:ghost-outline",
-  // 18
   Music: "mdi:music-note-eighth",
-  // 19
   "Film-Noir": "mdi:movie-open-star-outline",
-  // 20
   Musical: "mdi:theater",
-  // 21
   Sport: "mdi:basketball",
 };
 
 const getGenreIcon = (name) => GENRE_ICONS[name] || "mdi:movie-roll";
+
 const NAV_LINKS = [
   { label: "Home", href: "#", icon: "mdi:home-outline" },
   { label: "About", href: "#", icon: "mdi:information-outline" },
   { label: "Contact", href: "#", icon: "mdi:email-outline" },
 ];
 
+/* ------------------------------------------------------------------ */
+/*  AJAX live-search box                                              */
+/* ------------------------------------------------------------------ */
+function SearchBox({
+  className = "",
+  compact = false,
+  inline = false,
+  shortcut = false,
+}) {
+  const [term, setTerm] = useState("");
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const boxRef = useRef(null);
+  const inputRef = useRef(null);
+
+  const trimmed = term.trim();
+  const showPanel = open && trimmed.length >= 2;
+
+  /* ---- debounced request (cancels the previous one) ---- */
+  useEffect(() => {
+    if (trimmed.length < 2) {
+      setResult(null);
+      setError("");
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    setLoading(true);
+
+    const timer = setTimeout(() => {
+      axios
+        .get("https://moviesapi.ir/api/v1/movies", {
+          params: { q: trimmed, page: 1 }, // ← was `page={page}` before
+          signal: controller.signal,
+        })
+        .then((res) => {
+          if (cancelled) return;
+          setResult(res.data);
+          setError("");
+        })
+        .catch((err) => {
+          if (cancelled || axios.isCancel(err)) return;
+          setError("Could not load results. Please try again.");
+          setResult(null);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [trimmed]);
+
+  /* ---- close on outside click / Escape ---- */
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        inputRef.current?.blur();
+      }
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  /* ---- ⌘K / Ctrl+K focus ---- */
+  useEffect(() => {
+    if (!shortcut) return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [shortcut]);
+
+  const movies = Array.isArray(result) ? result : (result?.data ?? []);
+  const total = result?.metadata?.total_count ?? movies.length;
+
+  const panelClass = inline
+    ? "relative mt-2 w-full overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-xl"
+    : "absolute right-0 top-full z-50 mt-2 w-[22rem] origin-top-right overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-2xl";
+
+  return (
+    <div ref={boxRef} className={`relative ${className}`}>
+      <label className="input input-sm flex w-full items-center gap-2 rounded-full border-base-300 bg-base-200/60 focus-within:border-primary">
+        <Icon icon="mdi:magnify" className="text-base text-base-content/50" />
+
+        <input
+          ref={inputRef}
+          type="text"
+          value={term}
+          placeholder="Search movies..."
+          className="grow bg-transparent text-sm"
+          autoComplete="off"
+          onChange={(e) => {
+            setTerm(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+        />
+
+        {term ? (
+          <button
+            type="button"
+            aria-label="Clear search"
+            className="text-base-content/40 transition-colors hover:text-base-content"
+            onClick={() => {
+              setTerm("");
+              setResult(null);
+              inputRef.current?.focus();
+            }}
+          >
+            <Icon icon="mdi:close-circle" className="text-base" />
+          </button>
+        ) : (
+          !compact && <kbd className="kbd kbd-xs hidden lg:inline-flex">⌘K</kbd>
+        )}
+      </label>
+
+      {showPanel && (
+        <div className={panelClass}>
+          {/* header */}
+          <div className="flex items-center justify-between border-b border-base-300/60 px-4 py-2">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-base-content/50">
+              {loading && !result ? "Searching…" : "Results"}
+            </span>
+            {loading ? (
+              <span className="loading loading-spinner loading-xs text-primary" />
+            ) : (
+              total > 0 && (
+                <span className="text-[11px] text-base-content/50">
+                  {total} {total === 1 ? "movie" : "movies"}
+                </span>
+              )
+            )}
+          </div>
+
+          {/* body */}
+          {error ? (
+            <div className="flex items-center gap-2 px-4 py-6 text-sm text-error">
+              <Icon icon="mdi:alert-circle-outline" className="text-lg" />
+              {error}
+            </div>
+          ) : loading && !result ? (
+            <ul className="space-y-2 p-3">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="flex animate-pulse items-center gap-3">
+                  <div className="h-14 w-10 shrink-0 rounded-md bg-base-300/70" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-3/4 rounded bg-base-300/70" />
+                    <div className="h-2.5 w-1/2 rounded bg-base-300/50" />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : movies.length === 0 ? (
+            <div className="flex flex-col items-center gap-1 px-4 py-8 text-center">
+              <Icon
+                icon="mdi:movie-search-outline"
+                className="text-3xl text-base-content/30"
+              />
+              <p className="text-sm font-medium">No movies found</p>
+              <p className="text-xs text-base-content/50">
+                Nothing matched “{trimmed}”
+              </p>
+            </div>
+          ) : (
+            <ul
+              className={`overflow-y-auto p-2 ${
+                inline ? "max-h-[45vh]" : "max-h-80"
+              }`}
+            >
+              {movies.map((m) => (
+                <li key={m.id}>
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setOpen(false);
+                    }}
+                    className="group flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-base-200"
+                  >
+                    <img
+                      src={m.poster}
+                      alt={m.title}
+                      loading="lazy"
+                      className="h-14 w-10 shrink-0 rounded-md object-cover ring-1 ring-base-300"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold group-hover:text-primary">
+                        {m.title}
+                      </p>
+                      <p className="mt-0.5 flex items-center gap-2 text-xs text-base-content/60">
+                        <span>{m.year}</span>
+                        <span className="inline-flex items-center gap-0.5 text-warning">
+                          <Icon icon="mdi:star" className="text-sm" />
+                          {m.imdb_rating}
+                        </span>
+                      </p>
+                      <p className="truncate text-[11px] text-base-content/45">
+                        {(m.genres ?? []).join(" · ")}
+                      </p>
+                    </div>
+                    <Icon
+                      icon="mdi:chevron-right"
+                      className="shrink-0 text-lg text-base-content/30"
+                    />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Header                                                            */
+/* ------------------------------------------------------------------ */
 export default function Header() {
   const URL = "https://moviesapi.ir/api/v1/genres";
   const [genres, setGenres] = useState([]);
   const [megaOpen, setMegaOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
   const closeTimer = useRef(null);
 
   useEffect(() => {
@@ -154,18 +379,8 @@ export default function Header() {
 
         {/* ── Right: search + theme + avatar ─────────────────── */}
         <div className="flex flex-1 items-center justify-end gap-2">
-          <label className="input input-sm hidden items-center gap-2 rounded-full border-base-300 bg-base-200/60 focus-within:border-primary md:flex md:w-56 lg:w-64">
-            <Icon
-              icon="mdi:magnify"
-              className="text-base text-base-content/50"
-            />
-            <input
-              type="text"
-              placeholder="Search movies..."
-              className="grow bg-transparent text-sm"
-            />
-            <kbd className="kbd kbd-xs hidden lg:inline-flex">⌘K</kbd>
-          </label>
+          {/* desktop live search */}
+          <SearchBox shortcut className="hidden md:block md:w-56 lg:w-64" />
 
           <label className="swap swap-rotate btn btn-ghost btn-circle">
             <input type="checkbox" className="theme-controller" value="dim" />
@@ -295,14 +510,8 @@ export default function Header() {
         } transition-[max-height] duration-300`}
       >
         <div className="mx-auto max-w-7xl space-y-3 px-4 py-4">
-          <label className="input input-bordered flex items-center gap-2 rounded-full">
-            <Icon icon="mdi:magnify" className="text-base-content/50" />
-            <input
-              type="text"
-              placeholder="Search movies..."
-              className="grow bg-transparent text-sm"
-            />
-          </label>
+          {/* mobile live search (inline results, so they scroll with the menu) */}
+          <SearchBox compact inline />
 
           <ul className="menu w-full gap-1 rounded-box">
             {NAV_LINKS.map((l) => (
